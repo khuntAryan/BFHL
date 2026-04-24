@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BFHL</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+
+<body>
+  <div class="w-full min-h-screen bg-gray-900 text-white p-10">
+    
+    <h2 class="text-3xl mb-6">BFHL Hierarchy Analyzer</h2>
+    <textarea 
+      id="input"
+      class="w-full h-40 p-3 bg-transparent border-2 border-zinc-800 outline-none rounded-md"
+      placeholder='{
+  "data": ["A->B", "B->C"]
+}'
+    ></textarea>
+
+    <button 
+      onclick="send()" 
+      class="mt-4 px-4 py-2 bg-yellow-500 text-black rounded-md hover:bg-yellow-400"
+    >
+      Submit
+    </button>
+
+    <div 
+      id="output"
+      class="mt-6 p-4 bg-black border border-zinc-800 rounded-md max-h-[600px] overflow-y-auto"
+    ></div>
+
+  </div>
+
+<script>
+function renderTree(obj) {
+  let html = "<ul class='ml-4 pl-4 border-l border-zinc-700 space-y-1'>";
+  for (let key in obj) {
+    html += `<li>• ${key}`;
+    if (Object.keys(obj[key]).length > 0) {
+      html += renderTree(obj[key]);
+    }
+    html += "</li>";
+  }
+  html += "</ul>";
+  return html;
+}
+
+function renderSchema(json) {
+  return `
+    <div class="mb-6 p-4 border border-zinc-700 rounded-md bg-zinc-900">
+      <h3 class="text-xl mb-3 font-semibold">Response Schema</h3>
+      <ul class="text-sm text-zinc-400 space-y-1">
+        <li><b>user_id:</b> ${json.user_id}</li>
+        <li><b>email_id:</b> ${json.email_id}</li>
+        <li><b>college_roll_number:</b> ${json.college_roll_number}</li>
+        <li><b>hierarchies:</b> ${json.hierarchies.length} items</li>
+        <li><b>invalid_entries:</b> ${json.invalid_entries.length}</li>
+        <li><b>duplicate_edges:</b> ${json.duplicate_edges.length}</li>
+      </ul>
+    </div>
+  `;
+}
+
+async function send() {
+  const raw = document.getElementById("input").value;
+  const output = document.getElementById("output");
+
+  let data;
+
+  try {
+    const parsed = JSON.parse(raw);
+
+    if (!parsed.data || !Array.isArray(parsed.data)) {
+      output.innerHTML = `<div class="text-red-400">Invalid format</div>`;
+      return;
+    }
+
+    data = parsed.data;
+
+  } catch {
+    output.innerHTML = `<div class="text-red-400">Invalid JSON</div>`;
+    return;
+  }
+
+  output.innerHTML = `<div class="text-yellow-400">Processing...</div>`;
+
+  try {
+    const res = await fetch("/bfhl", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ data })
+    });
+
+    if (!res.ok) throw new Error();
+
+    const json = await res.json();
+
+    let html = "";
+
+    html += renderSchema(json);
+
+    html += `
+      <div>
+        <h3 class="text-2xl mb-4 font-semibold">Hierarchies</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    `;
+
+    json.hierarchies.forEach(h => {
+      html += `
+        <div class="p-4 border border-zinc-800 rounded-md bg-zinc-900 overflow-x-auto">
+          <p><b>Root:</b> ${h.root}</p>
+      `;
+
+      if (h.has_cycle) {
+        html += `<p class="text-red-400 mt-2">Cycle detected</p>`;
+      } else {
+        html += `<p><b>Depth:</b> ${h.depth}</p>`;
+        html += renderTree(h.tree);
+      }
+
+      html += `</div>`;
+    });
+
+    html += `</div></div>`;
+
+    html += `
+      <div class="mt-6 p-4 border border-zinc-800 rounded-md bg-zinc-900">
+        <h3 class="text-2xl mb-3 font-semibold">Summary</h3>
+        <p>Total Trees: ${json.summary.total_trees}</p>
+        <p>Total Cycles: ${json.summary.total_cycles}</p>
+        <p>Largest Tree Root: ${json.summary.largest_tree_root || "N/A"}</p>
+      </div>
+    `;
+
+
+    if (json.invalid_entries.length) {
+      html += `
+        <div class="mt-4 p-4 border border-red-600 text-red-400 rounded-md bg-red-900/20 overflow-x-auto">
+          <b>Invalid Entries:</b> ${json.invalid_entries.join(", ")}
+        </div>
+      `;
+    }
+
+    if (json.duplicate_edges.length) {
+      html += `
+        <div class="mt-4 p-4 border border-yellow-500 text-yellow-300 rounded-md bg-yellow-900/20 overflow-x-auto">
+          <b>Duplicate Edges:</b> ${json.duplicate_edges.join(", ")}
+        </div>
+      `;
+    }
+
+    output.innerHTML = html;
+
+  } catch {
+    output.innerHTML = `<div class="text-red-400">API Failed</div>`;
+  }
+}
+</script>
+
+</body>
+</html>
